@@ -28,8 +28,8 @@ var (
 )
 
 func handleConnection(ctx context.Context, conn net.Conn, dialer bool) {
-	// --- Handshake: exchange IDs ---
-	// Send our ID (terminated by newline).
+	// exhanging Ids in the hand shake
+	// sending this server's id.
 	_, err := conn.Write([]byte(id + "\n"))
 	if err != nil {
 		log.Println("Error writing id:", err)
@@ -37,7 +37,7 @@ func handleConnection(ctx context.Context, conn net.Conn, dialer bool) {
 		return
 	}
 
-	// Read the remote ID.
+	// reading the remote id.
 	buf := make([]byte, 256)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -48,9 +48,10 @@ func handleConnection(ctx context.Context, conn net.Conn, dialer bool) {
 
 	remoteID := strings.TrimSpace(string(buf[:n]))
 
-	// --- Duplicate connection resolution ---
-	// Rule: if our id is lower than remote id and we are the dialer, drop the connection.
-	// Conversely, if our id is higher and we are not the dialer (i.e. accepted connection), drop it.
+	// Resolving duplicate connection using unique ids
+	// if this server's id is lower than remote id and this server is the dialer then drop the connection.
+	// if this server's id is higher and this server is not the dialer then also drop the connection.
+	// else accept the connection
 	if id < remoteID && dialer {
 		log.Printf("(%s) Dropping outgoing connection to %s\n", id, remoteID)
 		conn.Close()
@@ -60,7 +61,13 @@ func handleConnection(ctx context.Context, conn net.Conn, dialer bool) {
 		conn.Close()
 		return
 	}
-
+    
+	// in the remaining cases:
+    	//  1) if this server's id is higher than the remote's and is the dialer: the remote server, having a lower ID 
+    	//	and accepting the connection, will not close it's side. Likewise, this server will keep the dialed connection open.
+    	//  2) If this server's id is lower than the remote's and is not the dialer: in this case, this server keeps the connection open 
+    	//	and the remote (which is the dialer) will also keep it's side open.
+	
 	mu.Lock()
 	aliveCconnections[remoteID] = &conn
 	mu.Unlock()
@@ -72,8 +79,6 @@ func handleConnection(ctx context.Context, conn net.Conn, dialer bool) {
 		delete(aliveCconnections, remoteID)
 		mu.Unlock()
 	}()
-
-	// log.Printf("(%s) Keeping connection with %s\n", id, remoteID)
 
 	dataChan := make(chan []byte)
 	errChan := make(chan error)
@@ -184,6 +189,7 @@ func writeToPeers(msg string, n int, done chan bool) {
 	}
 }
 
+// this sends `FWD` type messages periodically to random number of peers
 func sendFWDMessage(ctx context.Context) {
 	msg := fmt.Sprintf("Hello from %s", id)
 	ticker := time.NewTicker(1 * time.Second)
